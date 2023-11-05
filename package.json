@@ -8,5 +8,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/joakimch/jlc-cdp"
+  },
+  "dependencies": {
+    "jlc-websocket": "^0.9.2"
   }
 }
