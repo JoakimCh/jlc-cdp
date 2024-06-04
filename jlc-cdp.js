@@ -82,7 +82,6 @@ class CDP_Session extends EventEmitter {
 
   /** Detach this session from its target. */
   detach() {
-    console.log(this.#sessionId)
     return this.#cdp.send('Target.detachFromTarget', {sessionId: this.#sessionId})
   }
 
@@ -119,11 +118,9 @@ export class ChromeDevToolsProtocol extends EventEmitter {
     if ((params && targetId) || (!params && !targetId)) throw Error(`Either supply 'params' (e.g. {url}) to create a new target for the session or a 'targetId' to attach the session to.`)
     const session = new CDP_Session(this, {params, targetId})
     session.ready.then(({sessionId}) => {
-      // console.log('session attached', sessionId)
       this.#attachedSessions.set(sessionId, session)
     })
     session.once('detached', ({sessionId}) => {
-      // console.log('session detached', sessionId)
       this.#attachedSessions.delete(sessionId)
     })
     return session
@@ -202,7 +199,7 @@ export class ChromeDevToolsProtocol extends EventEmitter {
         throw Error('Id not awaiting result, but got one: '+id+', '+data)
       }
     } else if ('method' in data) {
-      const {method, params, sessionId} = data
+      let {method, params, sessionId} = data
       if (this.debug) {
         if (this.debug_skipParams && data.params) {
           const toDebug = {...data}
@@ -213,6 +210,10 @@ export class ChromeDevToolsProtocol extends EventEmitter {
         }
       }
       this.emit(method, params, sessionId)
+      if (!sessionId && params?.sessionId) {
+        // have the session emit events related to it, e.g. Target.detachedFromTarget
+        sessionId = params.sessionId
+      }
       if (sessionId) {
         const session = this.#attachedSessions.get(sessionId)
         if (session) {
