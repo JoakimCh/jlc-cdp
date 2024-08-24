@@ -37,36 +37,42 @@ class CDP_Session extends EventEmitter {
     super()
     this.#cdp = cdp
     this.ready = new Promise((resolve, reject) => {
-      this.#initSession(params, targetId, resolve, reject)
+      // setTimeout(() => { // probably not needed
+        this.#initSession(params, targetId, resolve, reject)
+      // }, 1)
     })
   }
 
   async #initSession(params, targetId, resolve, reject) {
-    if (params) {
-      const result = await this.#cdp.send('Target.createTarget', params)
-      if (!result.targetId) {
+    try {
+      if (params) {
+        const result = await this.#cdp.send('Target.createTarget', params)
+        if (!result.targetId) {
+          return reject(Error('Error creating new session: '+result))
+        }
+        targetId = result.targetId
+      }
+      const result = await this.#cdp.send('Target.attachToTarget', {
+        targetId, flatten: true
+      })
+      const {sessionId} = result
+      if (!sessionId) {
         return reject(Error('Error creating new session: '+result))
       }
-      targetId = result.targetId
+      this.#targetId = targetId
+      this.#sessionId = sessionId
+      resolve({sessionId, targetId}) // resolve the this.ready promise
+      // this.emit('ready', {sessionId, targetId}) // also emit a ready event
+      this.once('Target.detachedFromTarget', () => {
+        this.#sessionId = null
+        this.emit('detached', {sessionId, targetId})
+        setTimeout(() => {
+          this.removeAllListeners()
+        }, 1)
+      })
+    } catch (error) {
+      reject(error)
     }
-    const result = await this.#cdp.send('Target.attachToTarget', {
-      targetId, flatten: true
-    })
-    const {sessionId} = result
-    if (!sessionId) {
-      return reject(Error('Error creating new session: '+result))
-    }
-    this.#targetId = targetId
-    this.#sessionId = sessionId
-    resolve({sessionId, targetId}) // resolve the this.ready promise
-    // this.emit('ready', {sessionId, targetId}) // also emit a ready event
-    this.once('Target.detachedFromTarget', () => {
-      this.#sessionId = null
-      this.emit('detached', {sessionId, targetId})
-      setTimeout(() => {
-        this.removeAllListeners()
-      }, 1)
-    })
   }
 
   /** Send a command which includes the `sessionId` parameter of this session. */
@@ -119,7 +125,7 @@ export class ChromeDevToolsProtocol extends EventEmitter {
     const session = new CDP_Session(this, {params, targetId})
     session.ready.then(({sessionId}) => {
       this.#attachedSessions.set(sessionId, session)
-    })
+    }).catch(() => {}) // even if caught elsewhere we must also catch it here!!
     session.once('detached', ({sessionId}) => {
       this.#attachedSessions.delete(sessionId)
     })
@@ -224,7 +230,7 @@ export class ChromeDevToolsProtocol extends EventEmitter {
   }
 }
 
-export async function initChrome({chromiumPath, cdpPort = 9222, detached = true}) {
+export async function initChrome({chromiumPath, cdpPort = 9222, detached = true, chromiumArgs = []}) {
   const controller = new AbortController()
   const signal = controller.signal
   const timeout = setTimeout(() => controller.abort(), 4000)
@@ -246,8 +252,10 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true}
       clearTimeout(timeout)
       return result
     } catch {
-      if (chrome) throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`)
-      chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`], {
+      if (chrome) {
+        throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`)
+      }
+      chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
         detached // let it continue to run when we're done?
       })
       chrome.stderr.setEncoding('utf-8')
