@@ -114,6 +114,7 @@ export class ChromeDevToolsProtocol extends EventEmitter {
     this.#ws.jsonMode = true
     this.#ws.on('message', this.#msgHandler.bind(this))
     this.#ws.once('close', event => this.emit('close', event))
+    this.#ws.once('error', event => this.emit('error', event))
     this.ready = new Promise(resolve => {
       this.#ws.once('open', resolve)
     })
@@ -239,11 +240,21 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
     try {
       if (chrome) { // if we just tried to launched it
         const stderr = await new Promise((resolve, reject) => {
-          signal.onabort = resolve
-          chrome.stderr.once('data', resolve)
+          let output = ''
+          signal.onabort = () => resolve('Abort signal triggered.')
           chrome.once('error', reject)
+          const stderrHandler = text => {
+            output += text
+            if (output.includes('DevTools listening on')) {
+              chrome.stderr.off('data', stderrHandler)
+              resolve(output)
+            }
+          }
+          chrome.stderr.on('data', stderrHandler)
         })
-        if (!stderr.includes('DevTools listening on')) throw Error(`Error enabling DevTools: ${stderr}`)
+        if (!stderr.includes('DevTools listening on')) {
+          throw Error(`Error enabling DevTools: ${stderr}`)
+        }
       }
       const result = {
         chrome,
@@ -251,9 +262,9 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
       }
       clearTimeout(timeout)
       return result
-    } catch {
+    } catch (error) {
       if (chrome) {
-        throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`)
+        throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`, {cause: error})
       }
       chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
         detached // let it continue to run when we're done?
