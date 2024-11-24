@@ -2,7 +2,7 @@
   "name": "jlc-cdp",
   "main": "./jlc-cdp.js",
   "type": "module",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "A tiny Chrome DevTools Protocol interface which doesn't get in your way!",
   "license": "MIT",
   "repository": {

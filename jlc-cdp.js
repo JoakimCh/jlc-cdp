@@ -81,6 +81,10 @@ class CDP_Session extends EventEmitter {
     return this.#cdp.send(method, params, this.#sessionId)
   }
 
+  async sendWithRetry(method, params = undefined, maxRetries = 3, retryDelay = 100) {
+    return this.#cdp.send(method, params, this.#sessionId, maxRetries, retryDelay)
+  }
+
   /** Returns a readable stream (Web API) which can be used to read a CDP stream by its handle. */
   readStream(handle, {offset, chunkSize} = {}) {
     return this.#cdp.readStream(handle, {offset, chunkSize}, this.#sessionId)
@@ -141,6 +145,20 @@ export class ChromeDevToolsProtocol extends EventEmitter {
     if (this.debug) debug('Outgoing RPC', rpc)
     this.#ws.send(rpc)
     return this.#getReply(rpc)
+  }
+
+  async sendWithRetry(method, params = undefined, sessionId = undefined, maxRetries = 3, retryDelay = 100) {
+    let retries = 0
+    while (true) {
+      try {
+        return await this.send(method, params, sessionId)
+      } catch (error) {
+        if (retries++ == maxRetries) {
+          throw error
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelay))
+      }
+    }
   }
 
   readStream(handle, {offset, chunkSize} = {}, sessionId = undefined) {
