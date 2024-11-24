@@ -82,7 +82,7 @@ class CDP_Session extends EventEmitter {
   }
 
   async sendWithRetry(method, params = undefined, maxRetries = 3, retryDelay = 100) {
-    return this.#cdp.send(method, params, this.#sessionId, maxRetries, retryDelay)
+    return this.#cdp.sendWithRetry(method, params, this.#sessionId, maxRetries, retryDelay)
   }
 
   /** Returns a readable stream (Web API) which can be used to read a CDP stream by its handle. */
