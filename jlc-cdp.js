@@ -292,7 +292,7 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
         }
         const result = {
           chrome,
-          info: await (await fetch(`http://localhost:${cdpPort}/json/version`, {signal})).json()
+          info: await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`, {signal})).json()
         }
         clearTimeout(timeout)
         return result
