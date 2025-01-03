@@ -287,7 +287,7 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
             chrome.stderr.on('data', stderrHandler)
           })
           if (!stderr.includes('DevTools listening on')) {
-            throw Error(`Error enabling DevTools: ${stderr}`)
+            throw `Error enabling DevTools.`
           }
         }
         const result = {
@@ -296,11 +296,16 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
         }
         clearTimeout(timeout)
         return result
-      } catch (error) {
+      } catch (cause) {
         if (chrome) {
+          let message = `Can't connect to the DevTools protocol. `
+          if (stdout.includes('in existing browser session')) {
+            message += `The browser is already running, but without this debugging port enabled! Close it and retry.`
+          }
+          const error = Error(message, {cause})
           error.stdout = stdout
           error.stderr = stderr
-          throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`, {cause: error})
+          throw error
         }
         chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
           detached // let it continue to run when we're done?
