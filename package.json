@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/joakimch/jlc-cdp"
+    "url": "git+https://github.com/joakimch/jlc-cdp.git"
   },
   "dependencies": {
     "jlc-websocket": "^0.9.3"
