@@ -266,21 +266,21 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
   const controller = new AbortController()
   const signal = controller.signal
   const timeout = setTimeout(() => controller.abort(), 4000)
-  let chrome, stdout = '', stderr = ''
+  let chrome, stdout = '', stderr = '', stderrHandler
   function stdoutHandler(text) {
     stdout += text
-  }
-  function stderrHandler(text) {
-    stderr += text
-    if (stderr.includes('DevTools listening on')) {
-      resolve(stderr)
-    }
   }
   try {
     while (true) {
       try {
         if (chrome) { // if we just tried to launched it
           await new Promise((resolve, reject) => {
+            stderrHandler = (text) => {
+              stderr += text
+              if (stderr.includes('DevTools listening on')) {
+                resolve(stderr)
+              }
+            }
             signal.onabort = () => resolve('Abort signal triggered.')
             chrome.once('error', reject)
             chrome.stdout.on('data', stdoutHandler)
