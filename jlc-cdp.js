@@ -104,16 +104,20 @@ class CDP_Session extends EventEmitter {
 /** A bare bones implementation of Chrome DevTools/Debugging Protocol. */
 export class ChromeDevToolsProtocol extends EventEmitter {
   debug
-  debug_skipParams
   #ws; #msgId = 0
   #awaitingReply = new Map()
   #attachedSessions = new Map()
   ready
 
-  constructor({webSocketDebuggerUrl, debug = false, debug_skipParams = false}) {
+  constructor({webSocketDebuggerUrl, debug = false}) {
     super()
-    this.debug = debug
-    this.debug_skipParams = debug_skipParams
+    if (debug) {
+      if (!['all', 'smart', 'skip params'].includes(debug)) {
+        throw Error(`No such CDP debugging mode: ${debug}. Valid options are: 'all', 'skip params' and 'smart'.`)
+      }
+      this.debug = debug
+      console.log('CDP debugging mode: '+debug)
+    }
     this.#ws = new WebSocket(webSocketDebuggerUrl)
     this.#ws.jsonMode = true
     this.#ws.on('message', this.#msgHandler.bind(this))
@@ -225,16 +229,21 @@ export class ChromeDevToolsProtocol extends EventEmitter {
       }
     } else if ('method' in data) {
       let {method, params, sessionId} = data
-      if (this.debug) {
-        if (this.debug_skipParams && data.params) {
+      switch (this.debug) {
+        case 'full': debug('Incoming event', data); break
+        case 'skip params': {
           const toDebug = {...data}
           delete toDebug.params
           debug('Incoming event', toDebug)
-        } else {
+        } break
+      }
+      let didDebug
+      if (this.emit(method, params, sessionId)) { // had listener
+        if (this.debug == 'smart') {
           debug('Incoming event', data)
+          didDebug = true
         }
       }
-      this.emit(method, params, sessionId)
       if (!sessionId && params?.sessionId) {
         // have the session emit events related to it, e.g. Target.detachedFromTarget
         sessionId = params.sessionId
@@ -242,7 +251,11 @@ export class ChromeDevToolsProtocol extends EventEmitter {
       if (sessionId) {
         const session = this.#attachedSessions.get(sessionId)
         if (session) {
-          session.emit(method, params)
+          if (session.emit(method, params)) {
+            if (!didDebug && this.debug == 'smart') {
+              debug('Incoming event', data)
+            }
+          }
         }
       }
     } else throw Error('Message without id or method received: '+data)
@@ -253,41 +266,52 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
   const controller = new AbortController()
   const signal = controller.signal
   const timeout = setTimeout(() => controller.abort(), 4000)
-  let chrome
-  while (true) {
-    try {
-      if (chrome) { // if we just tried to launched it
-        const stderr = await new Promise((resolve, reject) => {
-          let output = ''
-          signal.onabort = () => resolve('Abort signal triggered.')
-          chrome.once('error', reject)
-          const stderrHandler = text => {
-            output += text
-            if (output.includes('DevTools listening on')) {
-              chrome.stderr.off('data', stderrHandler)
-              resolve(output)
-            }
+  let chrome, stdout = '', stderr = ''
+  function stdoutHandler(text) {
+    stdout += text
+  }
+  function stderrHandler(text) {
+    stderr += text
+    if (stderr.includes('DevTools listening on')) {
+      resolve(stderr)
+    }
+  }
+  try {
+    while (true) {
+      try {
+        if (chrome) { // if we just tried to launched it
+          await new Promise((resolve, reject) => {
+            signal.onabort = () => resolve('Abort signal triggered.')
+            chrome.once('error', reject)
+            chrome.stdout.on('data', stdoutHandler)
+            chrome.stderr.on('data', stderrHandler)
+          })
+          if (!stderr.includes('DevTools listening on')) {
+            throw Error(`Error enabling DevTools: ${stderr}`)
           }
-          chrome.stderr.on('data', stderrHandler)
-        })
-        if (!stderr.includes('DevTools listening on')) {
-          throw Error(`Error enabling DevTools: ${stderr}`)
         }
+        const result = {
+          chrome,
+          info: await (await fetch(`http://localhost:${cdpPort}/json/version`, {signal})).json()
+        }
+        clearTimeout(timeout)
+        return result
+      } catch (error) {
+        if (chrome) {
+          error.stdout = stdout
+          error.stderr = stderr
+          throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`, {cause: error})
+        }
+        chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
+          detached // let it continue to run when we're done?
+        })
+        chrome.stderr.setEncoding('utf-8')
       }
-      const result = {
-        chrome,
-        info: await (await fetch(`http://localhost:${cdpPort}/json/version`, {signal})).json()
-      }
-      clearTimeout(timeout)
-      return result
-    } catch (error) {
-      if (chrome) {
-        throw Error(`Can't connect to the DevTools protocol. Is the browser already running without the debugging port enabled?`, {cause: error})
-      }
-      chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
-        detached // let it continue to run when we're done?
-      })
-      chrome.stderr.setEncoding('utf-8')
+    }
+  } finally {
+    if (chrome) { // stop storing output on any return or crash
+      chrome.stdout.off('data', stdoutHandler)
+      chrome.stderr.off('data', stderrHandler)
     }
   }
 }
