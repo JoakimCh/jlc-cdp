@@ -310,6 +310,7 @@ export async function initChrome({chromiumPath, cdpPort = 9222, detached = true,
         chrome = spawn(chromiumPath, [`--remote-debugging-port=${cdpPort}`, ...chromiumArgs], {
           detached // let it continue to run when we're done?
         })
+        chrome.stdout.setEncoding('utf-8')
         chrome.stderr.setEncoding('utf-8')
       }
     }
